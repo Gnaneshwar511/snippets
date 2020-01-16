@@ -1,0 +1,65 @@
+    private File buildFile(List<TransactionData> transaction, int affNo, int period) {
+
+        String path;
+        if (EnvironmentUtils.isLocal()) {
+            path = "c:\\MAGICData";
+        } else {
+            String pathFirstPart = WebSphereVariableUtil.getWASVariableValueByNameSecure("APPL_DIR", AdminRunJob.ADMIN_USER, AdminRunJob.ADMIN_PASS);
+            String pathSecondPart = WebSphereVariableUtil.getWASVariableValueByNameSecure("ENV_NAME", AdminRunJob.ADMIN_USER, AdminRunJob.ADMIN_PASS);
+            path = pathFirstPart + "/" + pathSecondPart + "/Load";
+        }
+
+        File directory = new File(path);
+        File tempFile = null;
+        try {
+            tempFile = File.createTempFile("Decisions", ".csv", directory);
+            BufferedWriter out = new BufferedWriter(new FileWriter(tempFile));
+
+            boolean header = true;
+            for (TransactionData trx : transaction) {
+                if (header) {
+                    out.write("AFF NO");
+                    out.write(",");
+                    out.write("ABO NO");
+                    out.write(",");
+                    out.write("ORDER ID");
+                    out.write(",");
+                    out.write("ORDER DATE");
+                    out.write(",");
+                    out.write("PERIOD");
+                    out.write(",");
+                    out.write("PROC STATUS CODE");
+                    out.write(",");
+                    out.write("TRANSACTION SOURCE CODE");
+                    out.write(",");
+                    out.write("ORDERING BUSINESS NATURE CODE");
+                    out.newLine();
+                    header = false;
+                }
+
+                out.write(trx.getAffNo() + "");
+                out.write(",");
+                out.write(trx.getIboNo() + "");
+                out.write(",");
+                out.write(trx.getOriginalRefText() + "");
+                out.write(",");
+                out.write(trx.getOrderDate() + "");
+                out.write(",");
+                out.write(trx.getBonusPeriodNo() + "");
+                out.write(",");
+                out.write(trx.getProcStatCd() + "");
+                out.write(",");
+                out.write(trx.getTrxSourceCd() + "");
+                out.write(",");
+                out.write(trx.getOrdBusNatrCd() + "");
+                out.newLine();
+            }
+            out.close();
+            tempFile.deleteOnExit();
+
+        } catch (Exception e) {
+            throw new MagicRuntimeException("File Error while trying to build email for affiliate " + affNo + " period " + period, ErrorLogType.ERROR,
+                    e);
+        }
+        return tempFile;
+    }
