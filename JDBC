@@ -1,0 +1,51 @@
+    public List<TransactionData> getMissingDecisionsForOrders(Date fromDate, Date toDate, int affNo, int period) {
+        Connection connection = null;
+        PreparedStatement statement = null;
+        ResultSet result = null;
+
+        try {
+            connection = DBUtils.getConnection();
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Database connection in getMissingDecisionsForOrders() obtained successfully");
+            }
+            statement = connection.prepareStatement(DECISIONS_NOT_RECEIVED_QUERY);
+            int index = 1;
+            statement.setString(index++, Constants.TRANSACTION_SOURCE_OMS_ORDER);
+            statement.setDate(index++, SQLUtil.sqlDate(fromDate));
+            statement.setDate(index++, SQLUtil.sqlDate(toDate));
+            statement.setInt(index++, affNo);
+            statement.setString(index++, Constants.PROCESS_STATUS_CODE_NOTREADY);
+            statement.setString(index++, Constants.PROCESS_STATUS_CODE_DUPLICATE);
+            statement.setString(index++, Constants.PROCESS_STATUS_CODE_UNNEEDED_CANCELLATION);
+            statement.setInt(index++, period);
+            statement.setString(index++, Constants.BUS_NATR_MEMBER);
+            statement.setString(index++, Constants.BUS_NATR_CLIENT);
+            statement.setDate(index++, SQLUtil.sqlDate(fromDate));
+            statement.setDate(index++, SQLUtil.sqlDate(toDate));
+            result = statement.executeQuery();
+            TransactionData trxData;
+            List<TransactionData> exList = new ArrayList<TransactionData>();
+            while (result.next()) {
+                trxData = new TransactionData();
+                trxData.setAffNo(result.getBigDecimal("aff_no"));
+                trxData.setIboNo(result.getBigDecimal("ABO"));
+                trxData.setOriginalRefText(result.getString("ORD_ID"));
+                trxData.setOrderDate(result.getDate("ord_dt"));
+                trxData.setBonusPeriodNo(result.getInt("bns_per_no"));
+                trxData.setProcStatCd(result.getString("proc_stat_cd"));
+                trxData.setTrxSourceCd(result.getString("TRX_SOURC_NM"));
+                trxData.setOrdBusNatrCd(result.getString("ord_bus_natr"));
+                exList.add(trxData);
+            }
+            return exList;
+        } catch (SQLException e) {
+            throw new MagicSQLException("SQLException in getMissingDecisionsForOrders() ", ErrorLogType.ERROR, e);
+        } catch (Exception e) {
+            throw new MagicRuntimeException("Exception in getMissingDecisionsForOrders() ", ErrorLogType.ERROR, e);
+        } finally {
+            DBUtils.close(result, statement, connection);
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Database connections in getMissingDecisionsForOrders() closed successfully");
+            }
+        }
+    }
