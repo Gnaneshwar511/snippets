@@ -1,0 +1,63 @@
+    // Send multiple files as attachment to a single email
+    public static void sendCommaAttachmentEmail(String subject, String messageBody, List sendToEmails, List<File> fileCSV) {
+        String fromAddress = getDefaultFromAddress();
+        String env = getEnvironmentNameForEmailSubject();
+
+        Properties props = new Properties();
+        props.put("mail.host", AmwayResourceBundle.getGlobal("mail.host"));
+        try {
+            Session mailConnection = Session.getInstance(props, null);
+            Address from = new InternetAddress(fromAddress, "MAGIC System");
+            List toList = makeInternetAddressList(sendToEmails);
+            if (toList != null && toList.size() < 1) {
+                logger.error("No recipients specified!  Emails have not been sent.");
+                return;
+            }
+
+            Message msg = new MimeMessage(mailConnection);
+            msg.setFrom(from);
+
+            StringBuilder emailSubject = new StringBuilder();
+            emailSubject.append(env);
+            emailSubject.append(" - ");
+            emailSubject.append(subject);
+            msg.setSubject(emailSubject.toString());
+
+            Multipart mp = new MimeMultipart();
+
+            // Message Body Text
+            if (messageBody != null) {
+                BodyPart textPart = new MimeBodyPart();
+                textPart.setText(messageBody); // default to text/plain
+                mp.addBodyPart(textPart);
+            }
+
+            BodyPart attachPart;
+
+            for (File file : fileCSV) {
+                if (file.exists() && file.canRead()) {
+                    attachPart = new MimeBodyPart();
+                    DataSource sourceCSV = new FileDataSource(file);
+                    attachPart.setDataHandler(new DataHandler(sourceCSV));
+                    attachPart.setFileName(file.getName() + ".csv");
+                    mp.addBodyPart(attachPart);
+                }
+            }
+            msg.setContent(mp);
+
+            // Sending email to each recipient, otherwise, a single
+            // bad address would halt the sending
+            Iterator iter = toList.iterator();
+            while (iter.hasNext()) {
+                try {
+                    msg.setRecipient(Message.RecipientType.TO, (Address) iter.next());
+                    Transport.send(msg);
+                    logger.debug("Email sent");
+                } catch (Exception e) {
+                    logger.error(e);
+                }
+            }
+        } catch (Throwable e) {
+            logger.error("Error sending email." + e);
+        }
+    }
