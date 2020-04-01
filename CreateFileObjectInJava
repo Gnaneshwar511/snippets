@@ -13,6 +13,7 @@
         File tempFile = null;
         try {
             tempFile = File.createTempFile("Decisions", ".csv", directory);
+            tempFile.deleteOnExit();
             BufferedWriter out = new BufferedWriter(new FileWriter(tempFile));
 
             boolean header = true;
@@ -55,7 +56,6 @@
                 out.newLine();
             }
             out.close();
-            tempFile.deleteOnExit();
 
         } catch (Exception e) {
             throw new MagicRuntimeException("File Error while trying to build email for affiliate " + affNo + " period " + period, ErrorLogType.ERROR,
