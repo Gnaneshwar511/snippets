@@ -1,0 +1,125 @@
+package com.amway.abopayments.initializer.handler;
+
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
+import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
+import com.amazonaws.services.dynamodbv2.document.*;
+import com.amazonaws.services.dynamodbv2.document.spec.QuerySpec;
+import com.amazonaws.services.dynamodbv2.document.spec.UpdateItemSpec;
+import com.amazonaws.services.dynamodbv2.document.utils.NameMap;
+import com.amazonaws.services.dynamodbv2.document.utils.ValueMap;
+import com.amazonaws.services.lambda.runtime.Context;
+import com.amazonaws.services.lambda.runtime.RequestHandler;
+import com.amway.abopayments.initializer.dto.ItemKey;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class PrepaymentInitializationHandler implements RequestHandler<Map<String, Object>, String> {
+
+  private static final AmazonDynamoDB client = AmazonDynamoDBClientBuilder.standard().build();
+  private static final DynamoDB dynamoDB = new DynamoDB(client);
+
+  // TODO: make this variable environment specific
+  private static final String tableName = "ABOPayments-dev";
+  private static final String indexGSI2 = "GSI2-aff-procPerAndStsAndInvTyp-Index";
+  private static final Table table = dynamoDB.getTable(tableName);
+  private static final Index index = table.getIndex(indexGSI2);
+
+  private static final String INVOICE_STATUS_INVALID = "IV";
+  private static final String PARTITION_KEY_ATTRIBUTE = "mainPk";
+  private static final String SORT_KEY_ATTRIBUTE = "mainSk";
+  private static final String AFFILIATE_VALUE_PLACEHOLDER = ":aff";
+  private static final String PROCESSING_PERIOD_AND_INVOICE_TYPE_PLACEHOLDER = ":procPerStatus";
+  private static final String INVOICE_STATUS_PLACEHOLDER = ":invstatus";
+  private static final String MAGIC_POST_TO_RMS_DTM_KEY_PLACEHOLDER = "#magicPostToRmsDtm";
+  private static final String MAGIC_POST_TO_RMS_DTM_VALUE_PLACEHOLDER = ":magicPostToRmsDtm";
+  private static final String MAGIC_POST_TO_RMS_DTM = "magicPostToRmsDtm";
+
+  private void updateStatus(List<ItemKey> keys, String period) throws Exception {
+    try {
+      String currentDate = ZonedDateTime.now(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT);
+      for (ItemKey key : keys) {
+        UpdateItemSpec updateItemSpec =
+            new UpdateItemSpec()
+                .withPrimaryKey(
+                    new PrimaryKey(
+                        PARTITION_KEY_ATTRIBUTE,
+                        key.getPartitionKey(),
+                        SORT_KEY_ATTRIBUTE,
+                        key.getSortKey()))
+                .withUpdateExpression("set sts = :invstatus, #magicPostToRmsDtm = :magicPostToRmsDtm, #procPerAndSts = :procPerAndSts, #procPerAndStsAndInvTyp = :procPerAndStsAndInvTyp")
+                .withNameMap(
+                    new NameMap()
+                        .with(MAGIC_POST_TO_RMS_DTM_KEY_PLACEHOLDER, MAGIC_POST_TO_RMS_DTM).with("#procPerAndSts", "procPerAndSts").with("#procPerAndStsAndInvTyp", "procPerAndStsAndInvTyp"))
+                .withValueMap(
+                    new ValueMap()
+                        .withString(INVOICE_STATUS_PLACEHOLDER, INVOICE_STATUS_INVALID)
+                        .withString(MAGIC_POST_TO_RMS_DTM_VALUE_PLACEHOLDER, currentDate)
+                .withString(":procPerAndSts", period + "#" + INVOICE_STATUS_INVALID)
+                            .withString(":procPerAndStsAndInvTyp", period + "#" + INVOICE_STATUS_INVALID + "#" + key.getInvoiceType()));
+        table.updateItem(updateItemSpec);
+      }
+
+    } catch (Exception e) {
+      throw new Exception(String.format("Error while updating table: %s with exception: %s", table.getTableName(), e));
+    }
+  }
+
+  private List<ItemKey> queryIndexAndReadKeys(String aff, String period) throws Exception {
+    List<ItemKey> keys = new ArrayList<>();
+    try {
+      QuerySpec spec =
+          new QuerySpec()
+              .withKeyConditionExpression("aff = :aff and begins_with(procPerAndStsAndInvTyp, :procPerStatus)")
+                  .withProjectionExpression("mainPk, mainSk, invTyp")
+              .withValueMap(
+                  new ValueMap()
+                      .withString(AFFILIATE_VALUE_PLACEHOLDER, aff)
+                      .withString(PROCESSING_PERIOD_AND_INVOICE_TYPE_PLACEHOLDER, period + "#" + "AV")
+              );
+
+      ItemCollection<QueryOutcome> items = index.query(spec);
+
+      ItemKey itemKey;
+      for (Item item : items) {
+        itemKey = new ItemKey();
+        itemKey.setPartitionKey(item.getString(PARTITION_KEY_ATTRIBUTE));
+        itemKey.setSortKey(item.getString(SORT_KEY_ATTRIBUTE));
+        itemKey.setInvoiceType(item.getString("invTyp"));
+        keys.add(itemKey);
+      }
+    } catch (Exception e) {
+      throw new Exception(String.format("Error in updating index: %s with exception: %s", index.getIndexName(), e));
+    }
+    return keys;
+  }
+
+  @Override
+  public String handleRequest(Map<String, Object> input, Context context) {
+    try {
+      String aff = String.valueOf(input.get("aff"));
+      String period = String.valueOf(input.get("period"));
+      List<ItemKey> keys = queryIndexAndReadKeys(aff, period);
+      updateStatus(keys, period);
+    } catch (Exception e) {
+      return "Exception occurred " + e;
+    }
+    return "Lambda execution successful";
+  }
+
+  public static void main(String args[]) throws Exception {
+    PrepaymentInitializationHandler prepaymentInitializationHandler = new PrepaymentInitializationHandler();
+    try {
+      //mainPk for index 010#234254544445#CSIIV
+      String aff = "010";
+      String period = "202005";
+              List<ItemKey> keys = prepaymentInitializationHandler.queryIndexAndReadKeys(aff, period);
+      prepaymentInitializationHandler.updateStatus(keys, period);
+    } catch (Exception e) {
+      throw e;
+    }
+  }
+}
